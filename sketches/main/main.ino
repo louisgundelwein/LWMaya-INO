@@ -35,9 +35,9 @@ float motorOffset2 = 0;
 float motorOffset3 = 0;
 
 // Maximale Geschwindigkeiten für jeden Motor
-float maxSpeedMotor1 = 200;  // Standardwert, kann geändert werden
-float maxSpeedMotor2 = 2000;  // Standardwert, kann geändert werden
-float maxSpeedMotor3 = 2000;  // Standardwert, kann geändert werden
+float maxSpeedMotor1 = 10;  // Standardwert, kann geändert werden
+float maxSpeedMotor2 = 3000;  // Standardwert, kann geändert werden
+float maxSpeedMotor3 = 3000;  // Standardwert, kann geändert werden
 
 // Integration Variablen
 float integratedPos1 = 0;
@@ -109,17 +109,6 @@ void setup() {
 
 void loop() {
 
-  // Protokolliere die Position von Motor 1, wenn das Logging aktiviert ist
-  if (logMotor1Position && !SIMULATION_MODE) {
-    float motor1Position = base_motor_conn.get_pos(MOTOR_ID_1);
-    Serial.print(motor1Position);
-    Serial.print(";");
-    Serial.print(motor1Position);
-    Serial.print(";");
-    Serial.print(motor1Position);
-
-  }
-
   if (Serial.available() > 0) {
     String receivedData = Serial.readStringUntil('\n');
     if (receivedData.startsWith("LED:")) {
@@ -140,6 +129,10 @@ void loop() {
       parseDutyMessage(receivedData.substring(5));
     } else if (receivedData.startsWith("SPEED:")) {
       parseSpeedMessage(receivedData.substring(6));
+    } else if (receivedData.startsWith("goHome")) {
+      move_motor_to_position(3, 0);
+      move_motor_to_position(2, 0);
+      move_motor_to_position(1, 0);
     } else if (receivedData.startsWith("HOME")) {
       float old_position_1 = base_motor_conn.get_pos(MOTOR_ID_1);
       float old_position_2 = base_motor_conn.get_pos(MOTOR_ID_2);
@@ -201,12 +194,11 @@ void parsePOSMessage(String data) {
   int firstComma = data.indexOf(',');
   int secondComma = data.indexOf(',', firstComma + 1);
   int thirdComma = data.indexOf(',', secondComma + 1);
-  int fourthComma = data.indexOf(',', thirdComma + 1);
 
   float angleFrom = data.substring(0, firstComma).toFloat();
   float distanceFrom = data.substring(firstComma + 1, secondComma).toFloat();
-  float angleTo = data.substring(thirdComma + 1, fourthComma).toFloat();
-  float distanceTo = data.substring(fourthComma + 1).toFloat();
+  float angleTo = data.substring(secondComma + 1, thirdComma).toFloat();
+  float distanceTo = data.substring(thirdComma + 1).toFloat();
 
 #if SIMULATION_MODE
   Serial.print("Simuliert: Von Winkel: ");
@@ -224,13 +216,39 @@ void parsePOSMessage(String data) {
   Serial.println(distanceFrom);
   move_motor_to_position(MOTOR_ID_1, angleFrom);
   move_motor_to_position(MOTOR_ID_2, distanceFrom);
-  delay(1000);  // Optional: Pause zwischen den Bewegungen
+  parseGripperMessage("CLOSE");
+  move_motor_to_position(MOTOR_ID_3, 3100);
+  parseGripperMessage("OPEN");
+  move_motor_to_position(MOTOR_ID_3, 3500);
+  delay(5);
+  base_motor_conn.set_speed(MOTOR_ID_3, 0);
+  delay(5);
+  updateMotorPositions();
+  parseGripperMessage("CLOSE");
+  move_motor_to_position(MOTOR_ID_3, 10);
+  delay(5);
+  base_motor_conn.set_speed(MOTOR_ID_3, 0);
+  delay(5);
+  updateMotorPositions();
+  parseGripperMessage("CLOSE");
   Serial.print("Bewege zu Winkel: ");
   Serial.print(angleTo);
   Serial.print(" Entfernung: ");
   Serial.println(distanceTo);
   move_motor_to_position(MOTOR_ID_1, angleTo);
   move_motor_to_position(MOTOR_ID_2, distanceTo);
+  move_motor_to_position(MOTOR_ID_3, 3500);
+  delay(5);
+  base_motor_conn.set_speed(MOTOR_ID_3, 0);
+  delay(5);
+  updateMotorPositions();
+  parseGripperMessage("OPEN");
+  move_motor_to_position(MOTOR_ID_3, 10);
+  delay(5);
+  base_motor_conn.set_speed(MOTOR_ID_3, 0);
+  delay(5);
+  updateMotorPositions();
+  parseGripperMessage("CLOSE");
 #endif
 }
 
@@ -242,8 +260,6 @@ void parseAngleMessage(String data) {
   Serial.print("Simuliert: Neuer Winkel: ");
   Serial.println(currentAngle);
 #else
-  Serial.print("Setze neuen Winkel: ");
-  Serial.println(currentAngle);
   move_motor_to_position(MOTOR_ID_1, currentAngle);
 #endif
 }
@@ -256,8 +272,6 @@ void parseDistanceMessage(String data) {
   Serial.print("Simuliert: Neue Entfernung: ");
   Serial.println(currentDistance);
 #else
-  Serial.print("Setze neue Entfernung: ");
-  Serial.println(currentDistance);
   move_motor_to_position(MOTOR_ID_2, currentDistance);
 #endif
 }
@@ -270,10 +284,6 @@ void parseHeightMessage(String data) {
   Serial.print("Simuliert: Neue Höhe: ");
   Serial.println(currentHeight);
 #else
-  Serial.print("Setze neue Höhe: ");
-  Serial.println(currentHeight);
-  Serial.println("Höhenänderung:");
-  Serial.println(heightChange);
   move_motor_to_position(MOTOR_ID_3, currentHeight);
 #endif
 }
@@ -281,17 +291,17 @@ void parseHeightMessage(String data) {
 void parseGripperMessage(String data) {
   if (data.equals("OPEN")) {
     for (int i = 0; i < stepsPerRevolution; i++) {
-      stepMotor(1); // vorwärts
-      delay(4);
+      stepMotor(-1); // vorwärts
+      delay(2);
     }
-    delay(500);
+    delay(200);
     Serial.println("Greifer geöffnet");
   } else if (data.equals("CLOSE")) {
     for (int i = 0; i < stepsPerRevolution; i++) {
-      stepMotor(-1); // rückwärts
-      delay(4);
+      stepMotor(1); // rückwärts
+      delay(2);
     }
-    delay(500);
+    delay(200);
     Serial.println("Greifer geschlossen");
   }
 }
@@ -301,22 +311,23 @@ void parseSpeedMessage(String data) {
   int secondComma = data.indexOf(',', firstComma + 1);
 
   int motorId = data.substring(0, firstComma).toInt();
-  float maxSpeed = data.substring(firstComma + 1, secondComma).toFloat();
+  float speed = data.substring(firstComma + 1, secondComma).toFloat();
 
   if (motorId == MOTOR_ID_1) {
-    maxSpeedMotor1 = maxSpeed;
-    Serial.print("Maximale Geschwindigkeit für Motor 1 gesetzt auf: ");
-    Serial.println(maxSpeedMotor1);
+    base_motor_conn.set_speed(MOTOR_ID_1, speed);
+    Serial.print("Geschwindigkeit für Motor 1 gesetzt auf: ");
+    Serial.println(speed);
   } else if (motorId == MOTOR_ID_2) {
-    maxSpeedMotor2 = maxSpeed;
-    Serial.print("Maximale Geschwindigkeit für Motor 2 gesetzt auf: ");
-    Serial.println(maxSpeedMotor2);
+    base_motor_conn.set_speed(MOTOR_ID_2, speed);
+    Serial.print("Geschwindigkeit für Motor 2 gesetzt auf: ");
+    Serial.println(speed);
   } else if (motorId == MOTOR_ID_3) {
-    maxSpeedMotor3 = maxSpeed;
-    Serial.print("Maximale Geschwindigkeit für Motor 3 gesetzt auf: ");
-    Serial.println(maxSpeedMotor3);
+    base_motor_conn.set_speed(MOTOR_ID_3, speed);
+    Serial.print("Geschwindigkeit für Motor 3 gesetzt auf: ");
+    Serial.println(speed);
   }
 }
+
 
 void startDemo() {
   Serial.println("Starte Demo...");
@@ -379,7 +390,7 @@ void move_motor_to_position(long unsigned int id, float target_position) {
   // Berechne die Zielposition unter Berücksichtigung des Offsets
   if (id == MOTOR_ID_1) {
     target_position += motorOffset1;
-    target_position = constrain(target_position, MIN_POS_ANGLE, MAX_POS_ANGLE) - 90;
+    target_position = constrain(target_position, MIN_POS_ANGLE, MAX_POS_ANGLE);
   } else if (id == MOTOR_ID_2) {
     target_position += motorOffset2;
     target_position = constrain(target_position, MIN_POS_DISTANCE, MAX_POS_DISTANCE);
@@ -389,11 +400,11 @@ void move_motor_to_position(long unsigned int id, float target_position) {
   }
 
   // Passe die Zielposition an, um ein Überschwingen zu berücksichtigen
-  if (target_position > base_motor_conn.get_pos(id)) {
-    target_position += 0.2;
-  } else {
-    target_position -= 0.2;
-  }
+  //if (target_position > base_motor_conn.get_pos(id)) {
+  //  target_position += 0.2;
+  //} else {
+  //  target_position -= 0.2;
+  //}
 
   float maxSpeed = 500;  // Default max speed if no specific max speed is set
   if (id == MOTOR_ID_1) {
@@ -415,11 +426,11 @@ void move_motor_to_position(long unsigned int id, float target_position) {
     }
 
     float current_position = base_motor_conn.get_pos(id);
-    float position_difference = abs(target_position - current_position) * 100;
+    
 
     // Integrierte Position verwenden, wenn außerhalb von ±100
     if (id == MOTOR_ID_1) {
-      if (abs(current_position) >= 100) {
+      if (abs(current_position) >= 100 ) {
         current_position = integratedPos1;
       }
     } else if (id == MOTOR_ID_2) {
@@ -432,21 +443,24 @@ void move_motor_to_position(long unsigned int id, float target_position) {
       }
     }
 
+    float position_difference = abs(target_position - current_position);
+
     // Passe die Geschwindigkeit basierend auf der Entfernung zur Zielposition an
-    float speed = position_difference > maxSpeed ? maxSpeed : position_difference ;  // Proportionale Geschwindigkeit innerhalb der Grenzen
+    float speed = (position_difference * 2) > maxSpeed ? maxSpeed : (((position_difference * 2) < 100 ) ? 100 : (position_difference * 2)) ;  // Proportionale Geschwindigkeit innerhalb der Grenzen
+    speed = speed > maxSpeed ? maxSpeed : speed;
     if (target_position - current_position < 0) {
       speed = -speed;
     }
 
     base_motor_conn.set_speed(id, speed);
+    updateMotorPositions();
 
-    Serial.print(id);
-    Serial.print("; ");
-    Serial.print(target_position);
-    Serial.print("; ");
+    Serial.println("Diff: ");
+    Serial.print(position_difference);
+    Serial.println("Speed: ");
     Serial.print(speed);
-    Serial.print("; ");
-    Serial.print(current_position);
+
+    
 
     if (abs(current_position - target_position) <= 1) {
       break; // Beenden, wenn die Zielposition erreicht ist
@@ -455,10 +469,7 @@ void move_motor_to_position(long unsigned int id, float target_position) {
   }
 
   base_motor_conn.set_speed(id, 0);  // Stoppe den Motor
-  Serial.print("Motor ");
-  Serial.print(id);
-  Serial.print(" hat Position ");
-  Serial.print(target_position);
+  updateMotorPositions();
 
 #endif
 }
@@ -527,12 +538,13 @@ void updateMotorPositions() {
       integratedPos3 = pos3;
     }
 
-    Serial.print("Integrierte Positionen: ");
+    Serial.println("Positions: ");
     Serial.print(integratedPos1);
     Serial.print(", ");
     Serial.print(integratedPos2);
     Serial.print(", ");
     Serial.println(integratedPos3);
+    delay(5);
   }
 
   lastUpdateTime = currentUpdateTime;
