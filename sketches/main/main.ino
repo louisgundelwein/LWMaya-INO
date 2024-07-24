@@ -4,6 +4,8 @@
 #include "TMotor_ServoConnection.h"
 #include <Stepper.h>
 
+bool abortFlag = false;
+
 const int stepsPerRevolution = 2048;  // Anzahl der Schritte pro Umdrehung des Motors
 const int rolePerMinute = 12;         // Einstellbarer Bereich des 28BYJ-48 Steppermotors ist 0~17 U/min
 
@@ -35,9 +37,13 @@ float motorOffset2 = 0;
 float motorOffset3 = 0;
 
 // Maximale Geschwindigkeiten für jeden Motor
-float maxSpeedMotor1 = 10;  // Standardwert, kann geändert werden
-float maxSpeedMotor2 = 3000;  // Standardwert, kann geändert werden
-float maxSpeedMotor3 = 3000;  // Standardwert, kann geändert werden
+float maxSpeedMotor1 = 50;    // Standardwert, kann geändert werden
+float maxSpeedMotor2 = 4000;  // Standardwert, kann geändert werden
+float maxSpeedMotor3 = 4000;  // Standardwert, kann geändert werden
+
+float minSpeedMotor1 = 10;   // Standardwert, kann geändert werden
+float minSpeedMotor2 = 100;  // Standardwert, kann geändert werden
+float minSpeedMotor3 = 100;  // Standardwert, kann geändert werden
 
 // Integration Variablen
 float integratedPos1 = 0;
@@ -55,14 +61,14 @@ const int pin4 = 4;
 
 // Schrittsequenzen für den Motor
 const int stepSequence[8][4] = {
-  {1, 0, 0, 0},
-  {1, 1, 0, 0},
-  {0, 1, 0, 0},
-  {0, 1, 1, 0},
-  {0, 0, 1, 0},
-  {0, 0, 1, 1},
-  {0, 0, 0, 1},
-  {1, 0, 0, 1}
+  { 1, 0, 0, 0 },
+  { 1, 1, 0, 0 },
+  { 0, 1, 0, 0 },
+  { 0, 1, 1, 0 },
+  { 0, 0, 1, 0 },
+  { 0, 0, 1, 1 },
+  { 0, 0, 0, 1 },
+  { 1, 0, 0, 1 }
 };
 
 int currentStep = 0;
@@ -133,7 +139,15 @@ void loop() {
       move_motor_to_position(3, 0);
       move_motor_to_position(2, 0);
       move_motor_to_position(1, 0);
-    } else if (receivedData.startsWith("HOME")) {
+    } else if (receivedData.startsWith("CALIBRATE:")) {
+      int firstComma = receivedData.indexOf(',');
+      float angle = receivedData.substring(10, firstComma).toFloat();
+      float distance = receivedData.substring(firstComma + 1).toFloat();
+
+      move_motor_to_position(MOTOR_ID_1, angle);
+      move_motor_to_position(MOTOR_ID_2, distance);
+      parseGripperMessage("CLOSE");
+    }else if (receivedData.startsWith("HOME")) {
       float old_position_1 = base_motor_conn.get_pos(MOTOR_ID_1);
       float old_position_2 = base_motor_conn.get_pos(MOTOR_ID_2);
       float old_position_3 = base_motor_conn.get_pos(MOTOR_ID_3);
@@ -142,7 +156,7 @@ void loop() {
       Serial.println(old_position_1);
       Serial.println(old_position_2);
       Serial.println(old_position_3);
-      
+
       // Speichern der aktuellen Position als Offset
       motorOffset1 = old_position_1;
       motorOffset2 = old_position_2;
@@ -152,7 +166,7 @@ void loop() {
       Serial.println(motorOffset1);
       Serial.println(motorOffset2);
       Serial.println(motorOffset3);
-      
+
       float new_position_1 = base_motor_conn.get_pos(MOTOR_ID_1);
       float new_position_2 = base_motor_conn.get_pos(MOTOR_ID_2);
       float new_position_3 = base_motor_conn.get_pos(MOTOR_ID_3);
@@ -217,15 +231,19 @@ void parsePOSMessage(String data) {
   move_motor_to_position(MOTOR_ID_1, angleFrom);
   move_motor_to_position(MOTOR_ID_2, distanceFrom);
   parseGripperMessage("CLOSE");
-  move_motor_to_position(MOTOR_ID_3, 3100);
+  move_motor_to_position(MOTOR_ID_3, -3000);
   parseGripperMessage("OPEN");
-  move_motor_to_position(MOTOR_ID_3, 3500);
+  move_motor_to_position(MOTOR_ID_3, -3600);
   delay(5);
   base_motor_conn.set_speed(MOTOR_ID_3, 0);
   delay(5);
   updateMotorPositions();
   parseGripperMessage("CLOSE");
-  move_motor_to_position(MOTOR_ID_3, 10);
+  move_motor_to_position(MOTOR_ID_3, -3500);
+  parseGripperMessage("CLOSE");
+  move_motor_to_position(MOTOR_ID_3, -3400);
+  parseGripperMessage("CLOSE");
+  move_motor_to_position(MOTOR_ID_3, -10);
   delay(5);
   base_motor_conn.set_speed(MOTOR_ID_3, 0);
   delay(5);
@@ -237,13 +255,13 @@ void parsePOSMessage(String data) {
   Serial.println(distanceTo);
   move_motor_to_position(MOTOR_ID_1, angleTo);
   move_motor_to_position(MOTOR_ID_2, distanceTo);
-  move_motor_to_position(MOTOR_ID_3, 3500);
+  move_motor_to_position(MOTOR_ID_3, -3600);
   delay(5);
   base_motor_conn.set_speed(MOTOR_ID_3, 0);
   delay(5);
   updateMotorPositions();
   parseGripperMessage("OPEN");
-  move_motor_to_position(MOTOR_ID_3, 10);
+  move_motor_to_position(MOTOR_ID_3, -1);
   delay(5);
   base_motor_conn.set_speed(MOTOR_ID_3, 0);
   delay(5);
@@ -291,14 +309,14 @@ void parseHeightMessage(String data) {
 void parseGripperMessage(String data) {
   if (data.equals("OPEN")) {
     for (int i = 0; i < stepsPerRevolution; i++) {
-      stepMotor(-1); // vorwärts
+      stepMotor(-1);  // vorwärts
       delay(2);
     }
     delay(200);
     Serial.println("Greifer geöffnet");
   } else if (data.equals("CLOSE")) {
     for (int i = 0; i < stepsPerRevolution; i++) {
-      stepMotor(1); // rückwärts
+      stepMotor(1);  // rückwärts
       delay(2);
     }
     delay(200);
@@ -399,23 +417,49 @@ void move_motor_to_position(long unsigned int id, float target_position) {
     target_position = constrain(target_position, MIN_POS_HEIGHT, MAX_POS_HEIGHT);
   }
 
-  // Passe die Zielposition an, um ein Überschwingen zu berücksichtigen
-  //if (target_position > base_motor_conn.get_pos(id)) {
-  //  target_position += 0.2;
-  //} else {
-  //  target_position -= 0.2;
-  //}
-
   float maxSpeed = 500;  // Default max speed if no specific max speed is set
+  float minSpeed = 0;    // Default min speed if no specific min speed is set
   if (id == MOTOR_ID_1) {
     maxSpeed = maxSpeedMotor1;
+    minSpeed = minSpeedMotor1;
   } else if (id == MOTOR_ID_2) {
     maxSpeed = maxSpeedMotor2;
+    minSpeed = minSpeedMotor2;
   } else if (id == MOTOR_ID_3) {
     maxSpeed = maxSpeedMotor3;
+    minSpeed = minSpeedMotor3;
   }
 
+  float current_position_out_of_loop = base_motor_conn.get_pos(id);
+
+  // Integrierte Position verwenden, wenn außerhalb von ±100
+  if (id == MOTOR_ID_1) {
+    if (abs(current_position_out_of_loop) >= 100) {
+      current_position_out_of_loop = integratedPos1;
+    }
+  } else if (id == MOTOR_ID_2) {
+    if (abs(current_position_out_of_loop) >= 100) {
+      current_position_out_of_loop = integratedPos2;
+    }
+  } else if (id == MOTOR_ID_3) {
+    if (abs(current_position_out_of_loop) >= 100) {
+      current_position_out_of_loop = integratedPos3;
+    }
+  }
+
+  float distance = abs(target_position - current_position_out_of_loop);
+  float rampUpDistance = distance * 0.25;  // 25% der Strecke zum Beschleunigen
+  float rampDownDistance = distance * 0.25;  // 25% der Strecke zum Abbremsen
+
   while (true) {
+    // Prüfe auf eingehende Nachrichten
+    /*checkForAbort();
+    if (abortFlag) {
+      base_motor_conn.set_speed(id, 0);  // Stoppe den Motor
+      abortFlag = false;  // Reset abort flag
+      return;
+    }*/
+
     // Prüfe auf eingehende Nachrichten
     if (!digitalRead(CAN0_INT)) {
       // Hole alle Nachrichten in der Warteschlange
@@ -426,11 +470,10 @@ void move_motor_to_position(long unsigned int id, float target_position) {
     }
 
     float current_position = base_motor_conn.get_pos(id);
-    
 
     // Integrierte Position verwenden, wenn außerhalb von ±100
     if (id == MOTOR_ID_1) {
-      if (abs(current_position) >= 100 ) {
+      if (abs(current_position) >= 100) {
         current_position = integratedPos1;
       }
     } else if (id == MOTOR_ID_2) {
@@ -443,26 +486,37 @@ void move_motor_to_position(long unsigned int id, float target_position) {
       }
     }
 
-    float position_difference = abs(target_position - current_position);
+    float position_difference = target_position - current_position;
 
     // Passe die Geschwindigkeit basierend auf der Entfernung zur Zielposition an
-    float speed = (position_difference * 2) > maxSpeed ? maxSpeed : (((position_difference * 2) < 100 ) ? 100 : (position_difference * 2)) ;  // Proportionale Geschwindigkeit innerhalb der Grenzen
-    speed = speed > maxSpeed ? maxSpeed : speed;
-    if (target_position - current_position < 0) {
-      speed = -speed;
+    float speed = maxSpeed;
+    if (abs(position_difference) < rampDownDistance) {
+      speed = maxSpeed * (abs(position_difference) / rampDownDistance);  // Verlangsamen
+    } else if (distance - abs(position_difference) < rampUpDistance) {
+      speed = maxSpeed * ((distance - abs(position_difference)) / rampUpDistance);  // Beschleunigen
     }
+
+    // Stelle sicher, dass die Geschwindigkeit mindestens minSpeed beträgt
+    if (abs(speed) < minSpeed) {
+      speed = (position_difference < 0) ? -minSpeed : minSpeed;
+    }
+
+    // Geschwindigkeit entsprechend dem Vorzeichen des Positionsunterschieds einstellen
+    speed = (position_difference < 0) ? -abs(speed) : abs(speed);
 
     base_motor_conn.set_speed(id, speed);
     updateMotorPositions();
 
-    Serial.println("Diff: ");
+    Serial.print("Diff: ");
     Serial.print(position_difference);
-    Serial.println("Speed: ");
+    Serial.print(" Speed: ");
     Serial.print(speed);
+    Serial.print(" Target: ");
+    Serial.print(target_position);
+    Serial.print(" Current: ");
+    Serial.println(current_position);
 
-    
-
-    if (abs(current_position - target_position) <= 1) {
+    if (abs(current_position - target_position) <= (id == 1 ? 0.2 : 5)) {
       break; // Beenden, wenn die Zielposition erreicht ist
     }
     updateMotorPositions();
@@ -473,6 +527,7 @@ void move_motor_to_position(long unsigned int id, float target_position) {
 
 #endif
 }
+
 
 void updateMotorPositions() {
   currentUpdateTime = millis();
@@ -496,7 +551,7 @@ void updateMotorPositions() {
 
     // Integriere Positionen wenn außerhalb von ±100
     if (pos1 >= 100 || pos1 <= -100) {
-      float speed1 = base_motor_conn.get_speed(MOTOR_ID_1); // Umdrehungen pro Sekunde
+      float speed1 = base_motor_conn.get_speed(MOTOR_ID_1);  // Umdrehungen pro Sekunde
       //integration: use speed (inverted) to update pos
       //only updates set values, uses no integration value or default start positon
 
@@ -510,7 +565,7 @@ void updateMotorPositions() {
     }
 
     if (pos2 >= 100 || pos2 <= -100) {
-      float speed2 = base_motor_conn.get_speed(MOTOR_ID_2); // Umdrehungen pro Sekunde
+      float speed2 = base_motor_conn.get_speed(MOTOR_ID_2);  // Umdrehungen pro Sekunde
       //integration: use speed (inverted) to update pos
       //only updates set values, uses no integration value or default start positon
 
@@ -524,7 +579,7 @@ void updateMotorPositions() {
     }
 
     if (pos3 >= 100 || pos3 <= -100) {
-      float speed3 = base_motor_conn.get_speed(MOTOR_ID_3); // Umdrehungen pro Sekunde
+      float speed3 = base_motor_conn.get_speed(MOTOR_ID_3);  // Umdrehungen pro Sekunde
       //integration: use speed (inverted) to update pos
       //only updates set values, uses no integration value or default start positon
 
@@ -538,12 +593,12 @@ void updateMotorPositions() {
       integratedPos3 = pos3;
     }
 
-    Serial.println("Positions: ");
-    Serial.print(integratedPos1);
-    Serial.print(", ");
-    Serial.print(integratedPos2);
-    Serial.print(", ");
-    Serial.println(integratedPos3);
+    //Serial.println("Positions: ");
+    //Serial.print(integratedPos1);
+    //Serial.print(", ");
+    //Serial.print(integratedPos2);
+    //Serial.print(", ");
+    //Serial.println(integratedPos3);
     delay(5);
   }
 
@@ -552,9 +607,25 @@ void updateMotorPositions() {
 
 void stepMotor(int direction) {
   currentStep = (currentStep + direction + 8) % 8;
-  
+
   digitalWrite(pin1, stepSequence[currentStep][0]);
   digitalWrite(pin2, stepSequence[currentStep][1]);
   digitalWrite(pin3, stepSequence[currentStep][2]);
   digitalWrite(pin4, stepSequence[currentStep][3]);
 }
+
+/*void checkForAbort() {
+  while (Serial.available() > 0) {
+    String receivedData = Serial.readStringUntil('\n');
+    if (receivedData.indexOf("ABORT") != -1) {
+      abortFlag = true;
+      Serial.println("Abort received, stopping all activities.");
+      // Leere den Serial-Speicher
+      while (Serial.available() > 0) {
+        Serial.read();
+      }
+      break;
+    }
+  }
+}*/
+
