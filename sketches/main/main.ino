@@ -451,6 +451,10 @@ void move_motor_to_position(long unsigned int id, float target_position) {
   float rampUpDistance = distance * 0.25;  // 25% der Strecke zum Beschleunigen
   float rampDownDistance = distance * 0.25;  // 25% der Strecke zum Abbremsen
 
+  if (distance < rampUpDistance + rampDownDistance) {
+    maxSpeed = maxSpeed * (distance / (rampUpDistance + rampDownDistance));
+  }
+
   while (true) {
     // Prüfe auf eingehende Nachrichten
     /*checkForAbort();
@@ -473,15 +477,15 @@ void move_motor_to_position(long unsigned int id, float target_position) {
 
     // Integrierte Position verwenden, wenn außerhalb von ±100
     if (id == MOTOR_ID_1) {
-      if (abs(current_position) >= 100) {
+      if (abs(current_position) >= 2000) {
         current_position = integratedPos1;
       }
     } else if (id == MOTOR_ID_2) {
-      if (abs(current_position) >= 100) {
+      if (abs(current_position) >= 2000) {
         current_position = integratedPos2;
       }
     } else if (id == MOTOR_ID_3) {
-      if (abs(current_position) >= 100) {
+      if (abs(current_position) >= 2000) {
         current_position = integratedPos3;
       }
     }
@@ -550,7 +554,7 @@ void updateMotorPositions() {
     float pos3 = base_motor_conn.get_pos(MOTOR_ID_3);
 
     // Integriere Positionen wenn außerhalb von ±100
-    if (pos1 >= 100 || pos1 <= -100) {
+    if (pos1 >= 2000 || pos1 <= -2000) {
       float speed1 = base_motor_conn.get_speed(MOTOR_ID_1);  // Umdrehungen pro Sekunde
       //integration: use speed (inverted) to update pos
       //only updates set values, uses no integration value or default start positon
@@ -564,7 +568,7 @@ void updateMotorPositions() {
       integratedPos1 = pos1;
     }
 
-    if (pos2 >= 100 || pos2 <= -100) {
+    if (pos2 >= 2000 || pos2 <= -2000) {
       float speed2 = base_motor_conn.get_speed(MOTOR_ID_2);  // Umdrehungen pro Sekunde
       //integration: use speed (inverted) to update pos
       //only updates set values, uses no integration value or default start positon
@@ -578,7 +582,7 @@ void updateMotorPositions() {
       integratedPos2 = pos2;
     }
 
-    if (pos3 >= 100 || pos3 <= -100) {
+    if (pos3 >= 2000 || pos3 <= -2000) {
       float speed3 = base_motor_conn.get_speed(MOTOR_ID_3);  // Umdrehungen pro Sekunde
       //integration: use speed (inverted) to update pos
       //only updates set values, uses no integration value or default start positon
